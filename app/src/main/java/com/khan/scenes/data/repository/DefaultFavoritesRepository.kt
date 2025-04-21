@@ -1,5 +1,6 @@
 package com.khan.scenes.data.repository // Adjust package if needed
 
+import android.util.Log // Import Log if you add logging
 import com.khan.scenes.data.local.db.dao.FavoritesDao
 import com.khan.scenes.data.local.db.entity.FavoriteWallpaperEntity
 import com.khan.scenes.domain.model.Wallpaper
@@ -21,12 +22,18 @@ class DefaultFavoritesRepository @Inject constructor(
         }
     }
 
+    // --- Completed addFavorite function ---
     override suspend fun addFavorite(wallpaper: Wallpaper) {
-        // Map domain model to entity and insert using DAO
-        favoritesDao.insert(mapDomainToEntity(wallpaper))
+        Log.d("FavoritesRepository", "Adding favorite: ${wallpaper.id}") // Optional logging
+        // Map domain model to entity
+        val favoriteEntity = mapDomainToEntity(wallpaper)
+        // Insert using DAO
+        favoritesDao.insert(favoriteEntity)
     }
+    // --- End completed function ---
 
     override suspend fun removeFavorite(wallpaperId: String) {
+        Log.d("FavoritesRepository", "Removing favorite: $wallpaperId") // Optional logging
         favoritesDao.deleteById(wallpaperId)
     }
 
@@ -35,16 +42,24 @@ class DefaultFavoritesRepository @Inject constructor(
         return favoritesDao.getFavoriteById(wallpaperId).map { it != null }
     }
 
-    // --- Mapping Functions ---
+    // --- Mapping Functions (Ensure these are present) ---
     private fun mapEntityToDomain(entity: FavoriteWallpaperEntity): Wallpaper {
         return Wallpaper(
             id = entity.id,
             smallUrl = entity.smallUrl,
             regularUrl = entity.regularUrl,
             fullUrl = entity.fullUrl,
+            // Use smallUrl as fallback thumbnail for favorites loaded from DB
+            thumbUrl = entity.smallUrl,
             userName = entity.userName,
             userLink = entity.userLink,
-            isFavorite = true // Assumed true if it exists as an entity
+            isFavorite = true, // Assumed true if it exists as an entity
+            // Other fields are null as they aren't stored in FavoriteWallpaperEntity
+            description = null,
+            width = null,
+            height = null,
+            downloads = null,
+            tags = null
         )
     }
 
@@ -54,9 +69,11 @@ class DefaultFavoritesRepository @Inject constructor(
             smallUrl = wallpaper.smallUrl,
             regularUrl = wallpaper.regularUrl,
             fullUrl = wallpaper.fullUrl,
+            // Note: We don't store thumbUrl, description, width, height etc. in the entity currently.
+            // Only the fields defined in FavoriteWallpaperEntity are saved.
             userName = wallpaper.userName,
             userLink = wallpaper.userLink
-            // addedTimestamp is handled by default value in Entity
+            // addedTimestamp is handled by default value in Entity definition
         )
     }
 }

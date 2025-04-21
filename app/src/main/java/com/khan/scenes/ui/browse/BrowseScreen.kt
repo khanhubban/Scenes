@@ -1,40 +1,55 @@
 package com.khan.scenes.ui.browse
 
-import androidx.compose.foundation.clickable
+import android.util.Log
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.* // Import remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.khan.scenes.R
-import com.khan.scenes.domain.model.Wallpaper
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
 
-@OptIn(ExperimentalMaterial3Api::class)
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun BrowseScreen(
     viewModel: BrowseViewModel = hiltViewModel(),
     onWallpaperClick: (String) -> Unit,
     onSettingsClick: () -> Unit
 ) {
-    // Fix 1: Change browseState to uiState to match the property name in BrowseViewModel
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val categories = viewModel.categories
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val listState = rememberLazyGridState()
+
+    val currentQuery = (uiState as? BrowseScreenState.Success)?.query ?: ""
+    val selectedCategory = (uiState as? BrowseScreenState.Success)?.selectedCategory
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(id = R.string.app_name)) },
@@ -50,88 +65,156 @@ fun BrowseScreen(
         }
     ) { paddingValues ->
 
-        // Fix 2: Change browseState references to uiState
-        when (uiState) {
-            is BrowseScreenState.Loading -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
-            }
-            is BrowseScreenState.Error -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = (uiState as BrowseScreenState.Error).message ?: stringResource(R.string.unknown_error),
-                        modifier = Modifier.padding(16.dp)
+        Column(
+            modifier = Modifier
+                .padding(paddingValues)
+                .fillMaxSize()
+        ) {
+            OutlinedTextField(
+                value = currentQuery,
+                onValueChange = { viewModel.processIntent(BrowseIntent.SearchQueryChanged(it)) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                label = { Text(stringResource(R.string.search_wallpapers_label)) },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (currentQuery.isNotEmpty()) {
+                        IconButton(onClick = {
+                            viewModel.processIntent(BrowseIntent.SearchQueryChanged(""))
+                            viewModel.processIntent(BrowseIntent.TriggerSearch)
+                            keyboardController?.hide()
+                            focusManager.clearFocus()
+                        }) {
+                            Icon(Icons.Filled.Clear, contentDescription = stringResource(R.string.content_description_clear_search))
+                        }
+                    }
+                },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(
+                    onSearch = {
+                        viewModel.processIntent(BrowseIntent.TriggerSearch)
+                        keyboardController?.hide()
+                        focusManager.clearFocus()
+                    }
+                )
+            )
+
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                categories.forEach { category ->
+                    // Remember the onClick lambda for FilterChip
+                    val rememberedChipOnClick = remember(category, selectedCategory) {
+                        {
+                            val newCategory = if (category == selectedCategory) null else category
+                            viewModel.processIntent(BrowseIntent.CategorySelected(newCategory))
+                            keyboardController?.hide()
+                            focusManager.clearFocus()
+                        }
+                    }
+                    FilterChip(
+                        selected = category == selectedCategory,
+                        onClick = rememberedChipOnClick, // Use remembered lambda
+                        label = { Text(category) },
                     )
                 }
             }
-            is BrowseScreenState.Success -> {
-                val wallpapers = (uiState as BrowseScreenState.Success).wallpapers
-                if (wallpapers.isEmpty()) {
+
+            when (val state = uiState) {
+                is BrowseScreenState.Loading -> {
+                    Log.d("BrowseScreen", "Rendering Loading state")
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+                is BrowseScreenState.Error -> {
+                    Log.d("BrowseScreen", "Rendering Error state: ${state.message}")
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(paddingValues),
+                            .padding(16.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(stringResource(R.string.no_wallpapers_found))
+                        Text(
+                            text = state.message,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
                     }
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 128.dp),
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(paddingValues),
-                        contentPadding = PaddingValues(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(wallpapers, key = { it.id }) { wallpaper ->
-                            WallpaperGridItem(
-                                wallpaper = wallpaper,
-                                onClick = { onWallpaperClick(wallpaper.id) }
-                            )
+                }
+                is BrowseScreenState.Success -> {
+                    Log.d("BrowseScreen", "Rendering Success state. Wallpaper count: ${state.wallpapers.size}")
+                    if (state.wallpapers.isEmpty()) {
+                        Log.d("BrowseScreen", "Rendering Empty Success state")
+                        Box(
+                            modifier = Modifier.fillMaxSize().padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(stringResource(R.string.no_wallpapers_found))
                         }
-                        // You might want to add pagination loading indicator here
+                    } else {
+                        Log.d("BrowseScreen", "Rendering Success state with grid for ${state.wallpapers.size} items")
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = 128.dp),
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(state.wallpapers, key = { it.id }) { wallpaper ->
+                                Log.d("BrowseScreen", "Composing item for ID: ${wallpaper.id}")
+
+                                // Remember the onClick lambda for WallpaperGridItem
+                                val rememberedItemOnClick = remember(wallpaper.id, onWallpaperClick) {
+                                    { onWallpaperClick(wallpaper.id) }
+                                }
+
+                                WallpaperGridItem(
+                                    wallpaper = wallpaper,
+                                    onClick = rememberedItemOnClick // Use remembered lambda
+                                )
+                            }
+
+                            if (state.isLoadingMore) {
+                                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator()
+                                    }
+                                }
+                            }
+                        }
+
+                        LaunchedEffect(listState, state.canLoadMore, state.isLoadingMore) {
+                            snapshotFlow { listState.layoutInfo.visibleItemsInfo }
+                                .map { visibleItems ->
+                                    val lastVisibleItemIndex = visibleItems.lastOrNull()?.index ?: -1
+                                    val totalItems = listState.layoutInfo.totalItemsCount
+                                    lastVisibleItemIndex >= totalItems - 6 && state.canLoadMore && !state.isLoadingMore && totalItems > 0
+                                }
+                                .distinctUntilChanged()
+                                .filter { shouldLoadMore -> shouldLoadMore }
+                                .collect {
+                                    Log.d("BrowseScreen", "Pagination triggered - loading next page")
+                                    viewModel.processIntent(BrowseIntent.LoadNextPage)
+                                }
+                        }
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-fun WallpaperGridItem(
-    wallpaper: Wallpaper,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .aspectRatio(1f)
-            .clickable(onClick = onClick)
-    ) {
-        AsyncImage(
-            model = ImageRequest.Builder(LocalContext.current)
-                .data(wallpaper.smallUrl)
-                .crossfade(true)
-                .build(),
-            contentDescription = stringResource(R.string.content_description_wallpaper_preview, wallpaper.userName ?: "User"),
-            placeholder = painterResource(R.drawable.ic_placeholder_image),
-            error = painterResource(R.drawable.ic_error),
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
-        // Optional: Add favorite indicator overlay if needed
     }
 }

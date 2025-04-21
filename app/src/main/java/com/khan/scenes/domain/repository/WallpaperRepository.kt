@@ -13,6 +13,5 @@ interface WallpaperRepository {
     // Function to get details for a single wallpaper
     fun getWallpaperDetails(id: String): Flow<Wallpaper?> // Return nullable or handle error states
 
-    // Fixed: Just the method declaration without implementation body
-    suspend fun toggleFavorite(wallpaperId: String): Boolean
+    // --- REMOVED toggleFavorite ---
 }

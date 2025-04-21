@@ -1,17 +1,24 @@
 package com.khan.scenes.ui.browse
 
-import com.khan.scenes.domain.model.Wallpaper
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
+import com.khan.scenes.domain.model.Wallpaper // Assuming Wallpaper is stable/immutable
 
-// Represents the different states the BrowseScreen can be in
+@Stable // Mark sealed interface as Stable
 sealed interface BrowseScreenState {
-    // Use 'data object' for objects without parameters in Kotlin 1.9+
+    @Stable // Mark object as Stable
     data object Loading : BrowseScreenState
 
+    // Data class with stable val properties is usually stable, but explicit annotation is clear
+    @Stable
     data class Success(
-        val wallpapers: List<Wallpaper>,
-        val query: String? = null, // Current search query, null if not searching
-        val canLoadMore: Boolean = true // Flag indicating if more pages might exist
+        val wallpapers: List<Wallpaper>, // List is stable if Wallpaper is stable
+        val query: String = "",
+        val selectedCategory: String? = null,
+        val isLoadingMore: Boolean = false,
+        val canLoadMore: Boolean = true
     ) : BrowseScreenState
 
+    @Stable
     data class Error(val message: String) : BrowseScreenState
 }
