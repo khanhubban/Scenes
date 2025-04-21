@@ -1,4 +1,4 @@
-package com.khan.scenes.data.local.datastore // Adjust package if needed
+package com.khan.scenes.data.local.datastore
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
@@ -12,42 +12,39 @@ import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
-@Singleton // Make this a singleton as it manages access to the single DataStore
+@Singleton
 class PreferencesSettingsDataSource @Inject constructor(
-    @ApplicationContext private val context: Context // Inject context to access dataStore
+    @ApplicationContext private val context: Context
 ) : SettingsLocalDataSource {
 
-    // Expose settings as Flows, reading from dataStore using PreferencesKeys
     override val darkThemeEnabledFlow: Flow<Boolean> = context.dataStore.data
-        .catch { exception -> // Handle potential IOExceptions reading the file
+        .catch { exception ->
             if (exception is IOException) {
-                emit(emptyPreferences()) // Emit empty preferences if file not found or corrupt
+                emit(emptyPreferences())
             } else {
-                throw exception // Rethrow other exceptions
+                throw exception
             }
         }
         .map { preferences ->
-            // Read the boolean value associated with DARK_THEME_ENABLED key
-            // Provide a default value (false) if the key doesn't exist
             preferences[PreferencesKeys.DARK_THEME_ENABLED] ?: false
         }
 
     override val autoChangeIntervalFlow: Flow<String> = context.dataStore.data
-        .catch { exception -> if (exception is IOException) emit(emptyPreferences()) else throw exception }
+        .catch { exception ->
+            if (exception is IOException) emit(emptyPreferences()) else throw exception
+        }
         .map { preferences ->
-            // Read String value, provide default "never"
             preferences[PreferencesKeys.AUTO_CHANGE_INTERVAL] ?: "never"
         }
 
     override val autoChangeSourceFlow: Flow<String> = context.dataStore.data
-        .catch { exception -> if (exception is IOException) emit(emptyPreferences()) else throw exception }
+        .catch { exception ->
+            if (exception is IOException) emit(emptyPreferences()) else throw exception
+        }
         .map { preferences ->
-            // Read String value, provide default "favorites"
             preferences[PreferencesKeys.AUTO_CHANGE_SOURCE] ?: "favorites"
         }
 
-
-    // Implement suspend functions to update settings using dataStore.edit
     override suspend fun setDarkThemeEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.DARK_THEME_ENABLED] = enabled

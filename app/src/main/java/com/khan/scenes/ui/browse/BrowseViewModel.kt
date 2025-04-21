@@ -1,164 +1,206 @@
 package com.khan.scenes.ui.browse // Adjust package if needed
 
-import android.util.Log
+import android.util.Log // Ensure Log is imported
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.khan.scenes.domain.model.Wallpaper // Import domain model
-import com.khan.scenes.domain.repository.FavoritesRepository // Import FavoritesRepository
-import com.khan.scenes.domain.repository.WallpaperRepository // Import WallpaperRepository
+import com.khan.scenes.domain.model.Wallpaper
+import com.khan.scenes.domain.repository.FavoritesRepository
+import com.khan.scenes.domain.repository.WallpaperRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import java.util.NoSuchElementException // Import for .first() exception
+import java.util.NoSuchElementException
 import javax.inject.Inject
 
+// Define a log tag for this class
+private const val TAG = "BrowseViewModel"
 
 @HiltViewModel
 class BrowseViewModel @Inject constructor(
     private val wallpaperRepository: WallpaperRepository,
-    private val favoritesRepository: FavoritesRepository // Inject FavoritesRepository
+    private val favoritesRepository: FavoritesRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<BrowseScreenState>(BrowseScreenState.Loading)
     val uiState: StateFlow<BrowseScreenState> = _uiState.asStateFlow()
 
-    // Internal state for pagination and search query
     private var currentPage = 1
     private var currentQuery: String? = null
-    private var isLoadingNextPage = false // Prevent multiple simultaneous loads
+    private var isLoadingNextPage = false
+
+    init {
+        Log.d(TAG, "ViewModel initialized. Loading initial wallpapers.") // <-- ADDED LOG
+        processIntent(BrowseIntent.LoadInitialWallpapers) // Trigger initial load
+    }
 
     fun processIntent(intent: BrowseIntent) {
-        // Don't process pagination if already loading next page
-        if (intent is BrowseIntent.LoadNextPage && isLoadingNextPage) return
+        Log.d(TAG, "Processing intent: ${intent::class.simpleName}") // <-- ADDED LOG
+
+        // Prevent duplicate pagination requests
+        if (intent is BrowseIntent.LoadNextPage) {
+            if (isLoadingNextPage) {
+                Log.d(TAG, "Intent: LoadNextPage ignored, already loading.") // <-- ADDED LOG
+                return
+            }
+            val currentState = _uiState.value
+            if (currentState !is BrowseScreenState.Success || !currentState.canLoadMore) {
+                Log.d(TAG, "Intent: LoadNextPage ignored, not in Success state or cannot load more.") // <-- ADDED LOG
+                return
+            }
+            isLoadingNextPage = true // Set loading flag
+            currentPage++
+            Log.d(TAG, "Intent: LoadNextPage - Incrementing page to $currentPage") // <-- ADDED LOG
+            // Proceed to launch coroutine below
+        }
 
         viewModelScope.launch { // Launch coroutine in ViewModel's scope
             when (intent) {
                 is BrowseIntent.LoadInitialWallpapers -> {
+                    Log.d(TAG, "Intent: LoadInitialWallpapers - Resetting state.") // <-- ADDED LOG
                     currentPage = 1
                     currentQuery = null
-                    loadWallpapers(page = currentPage, query = currentQuery)
+                    isLoadingNextPage = false // Ensure flag is reset
+                    loadWallpapers(page = currentPage, query = currentQuery, isInitialLoad = true)
                 }
                 is BrowseIntent.LoadNextPage -> {
-                    val currentState = _uiState.value
-                    // Only load next page if currently in Success state and can load more
-                    if (currentState is BrowseScreenState.Success && currentState.canLoadMore) {
-                        isLoadingNextPage = true // Set loading flag
-                        currentPage++
-                        loadWallpapers(page = currentPage, query = currentQuery)
-                    }
+                    // Page incremented and flag set above
+                    loadWallpapers(page = currentPage, query = currentQuery, isInitialLoad = false)
                 }
-                is BrowseIntent.ToggleFavorite -> toggleFavorite(intent.wallpaperId)
+                is BrowseIntent.ToggleFavorite -> toggleFavorite(intent.wallpaperId) // Keep existing logic
                 is BrowseIntent.SearchWallpapers -> {
                     val query = intent.query.trim()
-                    // Handle empty query case - treat as clearing search
                     if (query.isBlank()) {
-                        processIntent(BrowseIntent.ClearSearch)
+                        Log.d(TAG, "Intent: SearchWallpapers - Query is blank, clearing search.") // <-- ADDED LOG
+                        processIntent(BrowseIntent.ClearSearch) // Treat blank search as clear
                     } else {
-                        currentPage = 1 // Reset page for new search
+                        Log.d(TAG, "Intent: SearchWallpapers - Starting search for '$query'") // <-- ADDED LOG
+                        currentPage = 1
                         currentQuery = query
-                        loadWallpapers(page = currentPage, query = currentQuery)
+                        isLoadingNextPage = false // Ensure flag is reset
+                        loadWallpapers(page = currentPage, query = currentQuery, isInitialLoad = true)
                     }
                 }
                 is BrowseIntent.ClearSearch -> {
+                    Log.d(TAG, "Intent: ClearSearch - Resetting state.") // <-- ADDED LOG
                     currentPage = 1
                     currentQuery = null
-                    loadWallpapers(page = currentPage, query = currentQuery)
+                    isLoadingNextPage = false // Ensure flag is reset
+                    loadWallpapers(page = currentPage, query = currentQuery, isInitialLoad = true)
                 }
             }
         }
     }
 
-    // Combined load/search function
-    private suspend fun loadWallpapers(page: Int, query: String? = null) {
-        // Set Loading state only for the first page of initial load or search
-        if (page == 1) {
+    // Added isInitialLoad parameter to control Loading state emission
+    private suspend fun loadWallpapers(page: Int, query: String?, isInitialLoad: Boolean) {
+        Log.d(TAG, "loadWallpapers - page: $page, query: $query, isInitialLoad: $isInitialLoad") // <-- ADDED LOG
+
+        // Set Loading state ONLY for the very first load or the start of a new search
+        if (isInitialLoad) {
+            Log.d(TAG, "loadWallpapers - Setting state to Loading") // <-- ADDED LOG
             _uiState.value = BrowseScreenState.Loading
         }
-        // Optional: Update state to indicate loading more if page > 1
+        // Optional: Indicate loading more state if page > 1 ? (Could add a flag to Success state)
 
-        Log.d("BrowseViewModel", "Loading page $page for query: $query")
         try {
-            // Choose repository flow based on whether there's a query
+            Log.d(TAG, "loadWallpapers - Calling repository flow...") // <-- ADDED LOG
             val wallpaperFlow = if (query.isNullOrBlank()) {
-                wallpaperRepository.getWallpapersFlow(page, 30) // Example perPage
+                wallpaperRepository.getWallpapersFlow(page, 30)
             } else {
-                wallpaperRepository.searchWallpapersFlow(query, page, 30) // Example perPage
+                wallpaperRepository.searchWallpapersFlow(query, page, 30)
             }
 
-            // Using first() assumes the flow emits the list once per request and completes
+            // Using first() - be mindful if the repository flow could error *before* emitting.
+            // The repository now re-throws, so the catch block here should handle it.
+            Log.d(TAG, "loadWallpapers - Collecting first emission from repository flow...") // <-- ADDED LOG
             val newWallpapers = wallpaperFlow.first()
-            // Basic check: assume we can't load more if the current request returned empty
-            val canLoadMore = newWallpapers.isNotEmpty()
+            Log.d(TAG, "loadWallpapers - Received ${newWallpapers.size} items from repository flow.") // <-- ADDED LOG
+
+            val canLoadMore = newWallpapers.isNotEmpty() // Simple check
 
             val currentSuccessState = _uiState.value as? BrowseScreenState.Success
-            val currentWallpapers = currentSuccessState?.wallpapers ?: emptyList()
+            // If it's the initial load OR a new search, currentWallpapers should be empty.
+            // If it's pagination (page > 1), use the existing list.
+            val existingWallpapers = if (page > 1) currentSuccessState?.wallpapers ?: emptyList() else emptyList()
 
-            _uiState.value = BrowseScreenState.Success(
-                // Append if loading page > 1, otherwise replace
-                wallpapers = if (page > 1) currentWallpapers + newWallpapers else newWallpapers,
-                query = query, // Pass current query to state
-                canLoadMore = canLoadMore // Pass flag to state
+            val newState = BrowseScreenState.Success(
+                wallpapers = existingWallpapers + newWallpapers,
+                query = query,
+                canLoadMore = canLoadMore
             )
+            Log.d(TAG, "loadWallpapers - Setting state to Success (Wallpapers: ${newState.wallpapers.size}, CanLoadMore: $canLoadMore)") // <-- ADDED LOG
+            _uiState.value = newState
+
         } catch (e: NoSuchElementException) {
-            // Handle case where .first() finds no emission (empty flow from repo)
-            Log.w("BrowseViewModel", "No emission from repository flow for page $page, query: $query")
+            // This catches if the flow completes *without* emitting (e.g., repo returns empty flow)
+            Log.w(TAG, "loadWallpapers - Flow completed without emitting for page $page, query: $query", e) // <-- MODIFIED LOG
             val currentSuccessState = _uiState.value as? BrowseScreenState.Success
-            val currentWallpapers = currentSuccessState?.wallpapers ?: emptyList()
-            if (page == 1) {
-                // If first page is empty, show empty success state
-                _uiState.value = BrowseScreenState.Success(emptyList(), query = query, canLoadMore = false)
-            } else {
-                // If subsequent page is empty, update state but signal no more pages
-                _uiState.value = BrowseScreenState.Success(currentWallpapers, query = query, canLoadMore = false)
-            }
+            val existingWallpapers = if (page > 1) currentSuccessState?.wallpapers ?: emptyList() else emptyList()
+
+            // If it was the first page, show empty success. If pagination, just stop loading more.
+            val newState = BrowseScreenState.Success(
+                wallpapers = existingWallpapers, // Keep existing wallpapers if paginating
+                query = query,
+                canLoadMore = false // Can't load more if flow was empty
+            )
+            Log.d(TAG, "loadWallpapers - Setting state to Success (Flow Empty) (Wallpapers: ${newState.wallpapers.size}, CanLoadMore: ${newState.canLoadMore})") // <-- ADDED LOG
+            _uiState.value = newState
+
         } catch (e: Exception) {
-            Log.e("BrowseViewModel", "Error loading wallpapers: ${e.localizedMessage}", e)
-            // Keep previous data on error if loading next page? Or show full error?
-            _uiState.value = BrowseScreenState.Error(e.localizedMessage ?: "Unknown error")
+            // Catch errors propagated from the repository (or other unexpected errors)
+            Log.e(TAG, "loadWallpapers - Error loading wallpapers: ${e.localizedMessage}", e) // <-- MODIFIED LOG
+            val errorMessage = e.localizedMessage ?: "Unknown error occurred"
+            Log.d(TAG, "loadWallpapers - Setting state to Error: $errorMessage") // <-- ADDED LOG
+            // Keep previous data on pagination error? For now, just show error state.
+            _uiState.value = BrowseScreenState.Error(errorMessage)
         } finally {
             if (page > 1) {
-                isLoadingNextPage = false // Reset loading flag for pagination
+                Log.d(TAG, "loadWallpapers - Resetting isLoadingNextPage flag.") // <-- ADDED LOG
+                isLoadingNextPage = false // Reset pagination flag
             }
         }
     }
 
 
-    // Uses FavoritesRepository now
+    // Keep existing toggleFavorite implementation (or add logging if needed)
     private suspend fun toggleFavorite(wallpaperId: String) {
+        Log.d(TAG, "toggleFavorite: Received toggle request for ID $wallpaperId")
         val currentState = _uiState.value
-        // Only proceed if we have a current list of wallpapers
         if (currentState is BrowseScreenState.Success) {
-            val wallpaperToToggle = currentState.wallpapers.firstOrNull { it.id == wallpaperId } ?: return // Find the item
+            val wallpaperToToggle = currentState.wallpapers.firstOrNull { it.id == wallpaperId }
+            if (wallpaperToToggle == null) {
+                Log.w(TAG, "toggleFavorite: Wallpaper ID $wallpaperId not found in current state.")
+                return
+            }
 
-            // Perform repository action in the background
+            // Optimistic UI update first
+            val updatedWallpapers = currentState.wallpapers.map {
+                if (it.id == wallpaperId) it.copy(isFavorite = !it.isFavorite) else it
+            }
+            Log.d(TAG, "toggleFavorite: Applying optimistic UI update for $wallpaperId")
+            // Keep query and canLoadMore flags from the current state
+            _uiState.value = currentState.copy(wallpapers = updatedWallpapers)
+
+            // Then call repository
             try {
-                if (wallpaperToToggle.isFavorite) {
+                if (wallpaperToToggle.isFavorite) { // If it *was* favorite before toggle
+                    Log.d(TAG, "toggleFavorite: Calling repository removeFavorite for $wallpaperId")
                     favoritesRepository.removeFavorite(wallpaperId)
-                    Log.d("BrowseViewModel", "Removed favorite $wallpaperId")
                 } else {
-                    // FavoritesRepo takes the domain model directly for add.
+                    Log.d(TAG, "toggleFavorite: Calling repository addFavorite for $wallpaperId")
+                    // Pass the original wallpaper object (before toggle) to addFavorite
                     favoritesRepository.addFavorite(wallpaperToToggle)
-                    Log.d("BrowseViewModel", "Added favorite $wallpaperId")
                 }
-
-                // Optimistic UI Update: Immediately reflect the change in the UI state
-                val updatedWallpapers = currentState.wallpapers.map {
-                    if (it.id == wallpaperId) {
-                        it.copy(isFavorite = !it.isFavorite) // Toggle the flag
-                    } else {
-                        it
-                    }
-                }
-                // Emit the updated success state with the same query/canLoadMore flags
-                _uiState.value = currentState.copy(wallpapers = updatedWallpapers)
-
+                Log.d(TAG, "toggleFavorite: Repository call successful for $wallpaperId")
             } catch (e: Exception) {
-                Log.e("BrowseViewModel", "Error toggling favorite $wallpaperId: ${e.localizedMessage}", e)
-                // Optional: Show error via a UiEffect (Snackbar/Toast)
-                // For now, we just log, UI state remains unchanged on error
+                Log.e(TAG, "toggleFavorite: Error calling repository for $wallpaperId: ${e.localizedMessage}", e)
+                // Revert optimistic update on error
+                Log.d(TAG, "toggleFavorite: Reverting optimistic UI update due to error for $wallpaperId")
+                _uiState.value = currentState
+                // Optional: Show error message via a single-event Flow (SharedFlow/Channel)
             }
         } else {
-            Log.w("BrowseViewModel", "Cannot toggle favorite, current state is not Success: $currentState")
+            Log.w(TAG, "toggleFavorite: Cannot toggle favorite, not in Success state.")
         }
     }
 }

@@ -1,7 +1,9 @@
-package com.khan.scenes.di // Adjust package if needed
+package com.khan.scenes.di
 
-import com.khan.scenes.data.remote.KtorWallpaperRemoteDataSource // *** Import implementation ***
-import com.khan.scenes.data.remote.WallpaperRemoteDataSource // *** Import interface ***
+import com.khan.scenes.data.local.SettingsLocalDataSource
+import com.khan.scenes.data.local.datastore.PreferencesSettingsDataSource
+import com.khan.scenes.data.remote.KtorWallpaperRemoteDataSource
+import com.khan.scenes.data.remote.WallpaperRemoteDataSource
 import com.khan.scenes.data.repository.DefaultFavoritesRepository
 import com.khan.scenes.data.repository.DefaultSettingsRepository
 import com.khan.scenes.data.repository.DefaultWallpaperRepository
@@ -14,12 +16,9 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
-
 @Module
-@InstallIn(SingletonComponent::class) // Bindings will live as long as the application
+@InstallIn(SingletonComponent::class)
 abstract class RepositoryModule {
-
-    // --- Existing Bindings ---
 
     @Binds
     @Singleton
@@ -39,12 +38,19 @@ abstract class RepositoryModule {
         defaultSettingsRepository: DefaultSettingsRepository
     ): SettingsRepository
 
-    // *** ADD THIS BINDING ***
     @Binds
-    @Singleton // Assuming you want a single instance of the remote data source
+    @Singleton
     abstract fun bindWallpaperRemoteDataSource(
-        ktorDataSource: KtorWallpaperRemoteDataSource // Implementation class as parameter
-    ): WallpaperRemoteDataSource // Interface as return type
-    // ***********************
+        ktorDataSource: KtorWallpaperRemoteDataSource
+    ): WallpaperRemoteDataSource
 
+    // Add this binding for your SettingsLocalDataSource
+    @Binds
+    @Singleton
+    abstract fun bindSettingsLocalDataSource(
+        // Choose which implementation you want to use:
+        dataSource: PreferencesSettingsDataSource // DataStore implementation
+        // OR
+        // dataSource: SharedPrefsSettingsDataSource // SharedPreferences implementation
+    ): SettingsLocalDataSource
 }

@@ -6,20 +6,21 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text // Keep Text import for error case
+import androidx.compose.material3.Text // Keep Text import for error case or placeholders
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.navigation.NavHostController // Import NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.khan.scenes.ui.browse.BrowseScreen
-import com.khan.scenes.ui.navigation.AppDestinations
-import com.khan.scenes.ui.theme.ScenesTheme
-// *** Import the new Detail Screen Composable ***
 import com.khan.scenes.ui.detail.WallpaperDetailScreen
+import com.khan.scenes.ui.navigation.AppDestinations // Make sure this is imported
+import com.khan.scenes.ui.settings.SettingsScreen    // <-- Import the new SettingsScreen
+import com.khan.scenes.ui.theme.ScenesTheme
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -33,6 +34,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
+                    // Call the composable containing the NavHost
                     AppNavigation()
                 }
             }
@@ -40,20 +42,27 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// Composable function containing the navigation graph
 @Composable
 fun AppNavigation() {
-    val navController = rememberNavController()
+    val navController: NavHostController = rememberNavController()
 
     NavHost(
         navController = navController,
-        startDestination = AppDestinations.BROWSE_ROUTE
+        startDestination = AppDestinations.BROWSE_ROUTE // Your initial screen
     ) {
         // Browse Screen Destination
         composable(route = AppDestinations.BROWSE_ROUTE) {
             BrowseScreen(
                 onWallpaperClick = { wallpaperId ->
+                    // Navigate to detail, ensuring ID is passed correctly
                     navController.navigate("${AppDestinations.DETAIL_ROUTE}/$wallpaperId")
+                },
+                // *** Add navigation to Settings here (or wherever you place the trigger) ***
+                onSettingsClick = { // Example: Add this callback to BrowseScreen parameters
+                    navController.navigate(AppDestinations.SETTINGS_ROUTE)
                 }
+                // Add other necessary parameters/callbacks to BrowseScreen
             )
         }
 
@@ -62,25 +71,19 @@ fun AppNavigation() {
             route = AppDestinations.detailRouteWithArg,
             arguments = listOf(navArgument(AppDestinations.WALLPAPER_ID_ARG) { type = NavType.StringType })
         ) { backStackEntry ->
-            // ViewModel retrieves the ID, so we don't strictly need to pass it here,
-            // but it's useful if the Screen composable needs it directly for some reason.
-            // val wallpaperId = backStackEntry.arguments?.getString(AppDestinations.WALLPAPER_ID_ARG)
-
-            // *** Replace Placeholder with actual screen call ***
             WallpaperDetailScreen(
-                onNavigateUp = { navController.navigateUp() } // Provide lambda for back navigation
+                onNavigateUp = { navController.navigateUp() }
             )
-            // **************************************************
-
-            // --- Original placeholder code for reference ---
-            // val wallpaperId = backStackEntry.arguments?.getString(AppDestinations.WALLPAPER_ID_ARG)
-            // if (wallpaperId != null) {
-            //     Text("Detail Screen for ID: $wallpaperId") // Placeholder was here
-            // } else {
-            //     Text("Error: Wallpaper ID missing.")
-            // }
-            // --- End of original placeholder ---
         }
+
+        // --- >>>> ADD THIS COMPOSABLE ENTRY <<<< ---
+        composable(route = AppDestinations.SETTINGS_ROUTE) {
+            SettingsScreen(
+                onNavigateUp = { navController.navigateUp() } // Handles back navigation
+            )
+        }
+        // --- >>>> END OF ADDED ENTRY <<<< ---
+
     }
 }
 
@@ -88,9 +91,15 @@ fun AppNavigation() {
 @Preview(showBackground = true)
 @Composable
 fun DefaultPreview() {
+    // It's good practice to preview the navigation composable or individual screens
+    // Previewing AppNavigation might require providing a dummy NavController
+    // For simplicity, you might preview BrowseScreen or SettingsScreen directly here
     ScenesTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
+            // Example: Preview the AppNavigation structure
             AppNavigation()
+            // Or preview a specific screen:
+            // SettingsScreen(onNavigateUp = {})
         }
     }
 }
